@@ -7,6 +7,7 @@ from parsing.dates import parse_datetimes
 from plots.timeline import plot_timeline, compute_timeline
 from plots.pareto import plot_dynamic_pareto_by_title, plot_dynamic_pareto_scrap_bgrade_by_title
 from utils.branding import add_logo_to_fig
+import io
 
 st.set_page_config(page_title="Timeline Dashboard", layout="wide")
 st.title("📅 Timeline Dashboard")
@@ -14,24 +15,65 @@ st.title("📅 Timeline Dashboard")
 with st.sidebar:
     st.header("Data")
     uploaded_file = st.file_uploader("Load Data (.xlsx)", type=["xlsx"])
-    if st.button("Create New Excel File"):
-        st.download_button(
-            "Download Blank Excel",
-            data=get_blank_excel_bytes(),
-            file_name="timeline_blank.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # Load file button
     if st.button("Load File") and uploaded_file:
         df = load_data(uploaded_file)
         st.session_state["df"] = df
+        st.success("File loaded.")
+    # If no event table, start with blank
     elif "df" not in st.session_state:
-        df = load_data()
+        df = pd.DataFrame(columns=[
+            "Date", "StartTime", "EndTime", "Category", "Title", "Description", "Current Status",
+            "Scrap (m²)", "B-Grade (m²)", "Reserved", "Cost (€)", "Countermeasures"
+        ])
         st.session_state["df"] = df
     else:
         df = st.session_state["df"]
-    if st.button("Save Data"):
-        save_data(df)
-        st.success("Data saved.")
+
+    # Download current event table as Excel
+    if st.button("Download Current Event Table"):
+        if "df" in st.session_state:
+            buf = io.BytesIO()
+            st.session_state["df"].to_excel(buf, index=False)
+            st.download_button(
+                "Download Event Table as Excel",
+                data=buf.getvalue(),
+                file_name="timeline_eventtable.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    # Create new Excel file with prompt to save current table
+    if st.button("Create New Excel File"):
+        if not st.session_state["df"].empty:
+            st.warning("You have unsaved data in the event table. Please download it before creating a new blank file.")
+            if st.button("Download & Continue"):
+                buf = io.BytesIO()
+                st.session_state["df"].to_excel(buf, index=False)
+                st.download_button(
+                    "Download Event Table as Excel",
+                    data=buf.getvalue(),
+                    file_name="timeline_eventtable.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                # Clear event table after download
+                st.session_state["df"] = pd.DataFrame(columns=[
+                    "Date", "StartTime", "EndTime", "Category", "Title", "Description", "Current Status",
+                    "Scrap (m²)", "B-Grade (m²)", "Reserved", "Cost (€)", "Countermeasures"
+                ])
+                st.info("Event table cleared. You can now download a blank Excel file.")
+                st.download_button(
+                    "Download Blank Excel",
+                    data=get_blank_excel_bytes(),
+                    file_name="timeline_blank.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        else:
+            st.download_button(
+                "Download Blank Excel",
+                data=get_blank_excel_bytes(),
+                file_name="timeline_blank.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 category_filter = st.multiselect("Filter by Category", df["Category"].dropna().unique())
 reserved_filter = st.selectbox("Filter Reserved", ["All", "Yes", "No"])
@@ -104,7 +146,7 @@ with st.form("timeline_form"):
     missing = [cat for cat in all_categories if cat not in color_map]
     if missing:
         color_map.update(assign_colors(missing))
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     with col1:
         view_mode = st.selectbox("Timeline View", ["Day", "Week", "Month"])
     with col2:
@@ -113,7 +155,14 @@ with st.form("timeline_form"):
     with col3:
         update_clicked = st.form_submit_button("Update Views")
     with col4:
-        show_description = st.toggle("Show Block Descriptions", value=True)
+        show_title = st.toggle("Show Title", value=True)
+    with col5:
+        show_minutes = st.toggle("Show Minutes", value=True)
+    with col6:
+        show_scrap = st.toggle("Show Scrap", value=True)
+    with col7:
+        show_costs = st.toggle("Show Costs", value=True)
+    show_reserved = st.toggle("Show Reserved", value=True)
 
 if update_clicked:
     start_dt, end_dt = parse_datetimes(edited_df)
@@ -128,7 +177,11 @@ if update_clicked:
             view_mode,
             selected_date,
             color_map,
-            show_description=show_description
+            show_title=show_title,
+            show_minutes=show_minutes,
+            show_scrap=show_scrap,
+            show_costs=show_costs,
+            show_reserved=show_reserved
         )
     st.session_state["timeline_fig"] = fig
     st.success("Timeline updated!")
@@ -149,7 +202,11 @@ else:
         "Day",
         today,
         color_map,
-        show_description=True
+        show_title=True,
+        show_minutes=True,
+        show_scrap=True,
+        show_costs=True,
+        show_reserved=True
     )
     st.session_state["timeline_fig"] = fig
     st.plotly_chart(fig, use_container_width=True)
@@ -160,5 +217,4 @@ st.plotly_chart(plot_dynamic_pareto_by_title(st.session_state["df"], "Cost (€)
 
 st.header(f"Pareto by Scrap + B-Grade - {view_mode} {selected_date}")
 st.plotly_chart(plot_dynamic_pareto_scrap_bgrade_by_title(st.session_state["df"], view_mode, selected_date, color_map), use_container_width=True)
-
 
