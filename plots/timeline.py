@@ -7,7 +7,7 @@ from parsing.dates import parse_datetimes
 from utils.colors import get_color
 from utils.branding import add_logo_to_fig
 
-def plot_timeline(df, view_mode, selected_date, color_map, show_description=True):
+def plot_timeline(df, view_mode, selected_date, color_map, show_title=True, show_minutes=True, show_scrap=True, show_costs=True, show_reserved=True):
     if df.empty:
         return go.Figure()
     df = df.copy()
@@ -107,20 +107,27 @@ def plot_timeline(df, view_mode, selected_date, color_map, show_description=True
             return cat
     df["Swimlane"] = df.apply(swimlane_label, axis=1)
 
-    # Prepare custom text for each block (HTML for bold title)
-    if show_description:
-        df["BlockText"] = (
-            "<b style='font-size:22px;display:block;text-align:center'>" + df["Title"].astype(str) + "</b><br>" +
-            "<span style='display:block;text-align:left'>Duration: " + df["Duration (min)"].astype(str) + " min<br>" +
-            "Scrap + B-Grade: " +
-            (
-                pd.to_numeric(df["Scrap (m²)"], errors="coerce").fillna(0) +
-                pd.to_numeric(df["B-Grade (m²)"], errors="coerce").fillna(0)
-            ).astype(int).astype(str) + " m²<br>" +
-            "Total Costs: " + df["Cost (€)"].astype(str) + " €</span>"
-        )
-    else:
-        df["BlockText"] = "<b style='font-size:22px;display:block;text-align:center'>" + df["Title"].astype(str) + "</b>"
+    # Prepare custom text for each block based on toggles
+    def build_block_text(row):
+        parts = []
+        if show_title:
+            parts.append(f"<b style='font-size:22px;display:block;text-align:center'>{row['Title']}</b>")
+        details = []
+        if show_minutes:
+            details.append(f"Duration: {row['Duration (min)']} min")
+        if show_scrap:
+            scrap = pd.to_numeric(row["Scrap (m²)"], errors="coerce")
+            bgrade = pd.to_numeric(row["B-Grade (m²)"], errors="coerce")
+            total_scrap = int((scrap if not pd.isnull(scrap) else 0) + (bgrade if not pd.isnull(bgrade) else 0))
+            details.append(f"Scrap + B-Grade: {total_scrap} m²")
+        if show_costs:
+            details.append(f"Total Costs: {row['Cost (€)']} €")
+        if show_reserved:
+            details.append(f"Reserved: {row['Reserved']}")
+        if details:
+            parts.append("<span style='display:block;text-align:left'>" + "<br>".join(details) + "</span>")
+        return "<br>".join(parts)
+    df["BlockText"] = df.apply(build_block_text, axis=1)
 
     fig = px.timeline(
         df,
